@@ -118,3 +118,5 @@ gh repo create nowplaying --public --source=. --push
 ## Notes
 
 - If the cover is misplaced after resizing the terminal, it redraws on the next pass.
+
+# HUGE THANKS TO THE MAKERS OF PLAYERCTL AND CHAFA
