@@ -22,6 +22,7 @@ import urllib.request
 CACHE = os.path.expanduser("~/.cache/mediamanager")
 PLAYER = "spotify"
 CHAFA_FORMAT = "auto"
+ART_ERROR = ""
 
 ESC = "\x1b"
 
@@ -67,12 +68,21 @@ def get_metadata():
 #album cover
 
 def get_art(cover_url):
-    """Return a local file path for the cover, downloading and caching it."""
+    """Return a local file path for the cover, downloading and caching it.
+
+    On failure returns None and leaves the reason in ART_ERROR.
+    """
+    global ART_ERROR
+    ART_ERROR = ""
     if not cover_url:
+        ART_ERROR = "the player gave no cover URL"
         return None
     if cover_url.startswith("file://"):
         path = cover_url[len("file://"):]
-        return path if os.path.exists(path) else None
+        if os.path.exists(path):
+            return path
+        ART_ERROR = f"cover file not found: {path}"
+        return None
 
     os.makedirs(CACHE, exist_ok=True)
     name = hashlib.sha1(cover_url.encode()).hexdigest()
@@ -84,25 +94,40 @@ def get_art(cover_url):
                 data = resp.read()
             with open(path, "wb") as f:
                 f.write(data)
-        except Exception:
+        except Exception as e:
+            ART_ERROR = f"cover download failed ({type(e).__name__}: {e})"
             return None
     return path
 
 
 def render_art(path, width, height):
-    """Return chafa's rendering of the image, or '' if chafa/the file is unavailable."""
-    if not path or not shutil.which("chafa"):
+    """Return chafa's rendering of the image, or '' with the reason in ART_ERROR."""
+    global ART_ERROR
+    if not path:
+        return ""  # get_art already recorded why
+    if not shutil.which("chafa"):
+        ART_ERROR = "chafa not found (install it to see covers)"
         return ""
-    try:
-        r = subprocess.run(
-            ["chafa", "--size", f"{width}x{height}", "--animate=off",
-             "--format", CHAFA_FORMAT, path],
-            capture_output=True, text=True, timeout=5,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    return r.stdout if r.returncode == 0 else ""
 
+    cmd = ["chafa", "--size", f"{width}x{height}", "--animate=off"]
+    if CHAFA_FORMAT != "auto":  # chafa has no "auto" value; leaving the flag out auto-detects
+        cmd += ["--format", CHAFA_FORMAT]
+    cmd.append(path)
+
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+    except subprocess.TimeoutExpired:
+        ART_ERROR = "chafa timed out"
+        return ""
+    except OSError as e:
+        ART_ERROR = f"could not run chafa: {e}"
+        return ""
+    if r.returncode != 0:
+        lines = r.stderr.strip().splitlines()
+        ART_ERROR = "chafa failed: " + (lines[0] if lines else f"exit code {r.returncode}")
+        return ""
+    ART_ERROR = ""
+    return r.stdout
 
 # ------------------------------------------------------------------ drawing -- ai made
 
@@ -146,7 +171,8 @@ def draw_art(art, size):
     if art:
         write(art)
     else:
-        write("(no cover art)")
+        msg = "(no cover art" + (f": {ART_ERROR}" if ART_ERROR else "") + ")"
+        write(clip(msg, size.columns))
 
 
 def draw_text(track, size):
@@ -224,6 +250,7 @@ def handle_key(key):
 #main
 
 def run():
+    retry_in = 0
     last_title = None
     last_cover = None
     last_size = None
@@ -248,15 +275,21 @@ def run():
             song_changed = track["title"] != last_title or track["cover"] != last_cover
             resized = size != last_size
 
-            if song_changed or resized:
-                if song_changed:
+                # A failed download (no file at all) gets retried every few passes.
+                        # A failed download (no file at all) gets retried every few passes.
+            if art_path is None and not song_changed:
+                retry_in -= 1
+            retry = art_path is None and not song_changed and retry_in <= 0
+
+            if song_changed or resized or retry:
+                if song_changed or retry:
                     art_path = get_art(track["cover"])
                     last_title, last_cover = track["title"], track["cover"]
+                    retry_in = 5
                 art_w, art_h, _ = layout(size)
                 art = render_art(art_path, art_w, art_h)
                 draw_art(art, size)
             draw_text(track, size)
-
         last_size = size
 
         key = read_key(1.0)  
