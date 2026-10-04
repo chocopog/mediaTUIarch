@@ -1,6 +1,6 @@
 # Media Manager
+SO FAR ONLY TESTED ON ARCH
 
-Hi, just starting this project. README will be updated accordingly.
 Was missing a specific style of terminal media player, either that or I didn't look far enough.
 Whatever may be the case, it's a fun project for now.
 
@@ -11,8 +11,18 @@ Using Python to make a wrapper for playerctl to present data such as artist, son
 - chafa (optional, without it you just don't get the cover)
 - python3
 
+installation
+```bash
+bash install.sh
+```s
+
+uninstallation
+```bash
+bash uninstall.sh
+```
+
 no external library in python  
-for installing. on Arch:
+for installing dependancies on Arch:
 
 ```bash
 sudo pacman -S playerctl chafa
